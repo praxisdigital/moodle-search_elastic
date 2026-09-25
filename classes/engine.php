@@ -178,11 +178,12 @@ class engine extends \core_search\engine {
     /**
      * Get the version of the attached Elasticsearch / OpenSearch service.
      *
+     * @param \GuzzleHttp\HandlerStack|bool $stack Optional custom Guzzle handler stack.
      * @return object Apache Lucene version details.
      */
-    private function get_es_version_details() {
+    private function get_es_version_details($stack = false) {
         $url = $this->get_url();
-        $client = new \search_elastic\esrequest();
+        $client = new \search_elastic\esrequest($stack);
         $response = $client->get($url);
         $responsebody = json_decode($response->getBody());
 
@@ -190,12 +191,17 @@ class engine extends \core_search\engine {
     }
 
     /**
-     * Get the Apache Lucene version of the attached Elasticsearch / OpenSearch service.
+     * Get the Apache Lucene major version of the attached Elasticsearch / OpenSearch service.
      *
-     * @return integer The Apache Lucene version.
+     * The service reports a full version string such as "10.3.2". It is cast to its major
+     * version, because a string with more than one dot is not numeric in PHP, so comparing
+     * it to an integer (e.g. "10.3.2" < 8) falls back to a string comparison and is wrong.
+     *
+     * @param \GuzzleHttp\HandlerStack|bool $stack Optional custom Guzzle handler stack.
+     * @return int The Apache Lucene major version.
      */
-    public function get_es_lucene_version() {
-        return $this->get_es_version_details()->lucene_version;
+    public function get_es_lucene_version($stack = false): int {
+        return (int) $this->get_es_version_details($stack)->lucene_version;
     }
 
     /**

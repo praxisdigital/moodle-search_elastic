@@ -62,9 +62,9 @@ final class chunking_engine_test extends advanced_testcase {
     protected $engine = null;
 
     /**
-     * @var string the Apache Lucene version of the attached Elasticsearch / OpenSearch service.
+     * @var int the Apache Lucene major version of the attached Elasticsearch / OpenSearch service.
      */
-    protected string $luceneversion;
+    protected int $luceneversion;
 
     /**
      * @var mock_search_area
