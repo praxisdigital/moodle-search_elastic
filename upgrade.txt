@@ -1,6 +1,12 @@
 This files describes changes for the search elastic plugin, refer to Readme for functionality and install instructions.
 Information provided here is intended especially for developers.
 
+=== 2026092500 ===
+
+* engine::get_es_lucene_version() now returns the Lucene major version as an int instead of the raw version
+  string. Multi-dot strings such as "10.3.2" compared to an int as strings, so Lucene 10 (OpenSearch 3.x)
+  was treated as < 8 and got the legacy mapping. It also accepts an optional Guzzle handler stack for testing.
+
 === 2019042101 ===
 
 * Fixes issue with corrupt index. Installs with a corrupt index will have index deleted on upgrade and documents will be readded by
