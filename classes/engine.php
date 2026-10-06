@@ -76,6 +76,7 @@ class engine extends \core_search\engine {
             'index' => 'moodle',
             'sendsize' => 9000000,
             'logging' => 0,
+            'disablesslverify' => 0,
     ];
 
     /**

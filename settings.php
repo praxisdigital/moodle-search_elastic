@@ -60,6 +60,13 @@ if ($hassiteconfig) {
         PARAM_INT
     ));
 
+    $settings->add(new admin_setting_configcheckbox(
+        'search_elastic/disablesslverify',
+        get_string('disablesslverify', 'search_elastic'),
+        get_string('disablesslverify_help', 'search_elastic'),
+        0
+    ));
+
     $settings->add(new admin_setting_configtext(
         'search_elastic/index',
         get_string('index', 'search_elastic'),
