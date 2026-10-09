@@ -66,6 +66,16 @@ class engine extends \core_search\engine {
     protected $count = 0;
 
     /**
+     * @var int|null Apache Lucene major version, cached for this engine instance.
+     */
+    private $luceneversion = null;
+
+    /**
+     * @var esrequest|null Reusable client for this engine instance.
+     */
+    private $client = null;
+
+    /**
      *
      * @var array Configuration defaults.
      */
@@ -89,6 +99,25 @@ class engine extends \core_search\engine {
     public function __construct() {
         parent::__construct();
         $this->config = (object)array_merge($this->configdefaults, (array)$this->config);
+    }
+
+    /**
+     * Reuse the HTTP client so its transport can retain connections and DNS cache state.
+     *
+     * @param \GuzzleHttp\HandlerStack|bool $stack Optional custom Guzzle handler stack.
+     * @return esrequest
+     */
+    private function get_client($stack = false): esrequest {
+        // Keep custom handlers isolated from the normal client.
+        if ($stack) {
+            return new esrequest($stack);
+        }
+
+        if ($this->client === null) {
+            $this->client = new esrequest();
+        }
+
+        return $this->client;
     }
 
     /**
@@ -131,7 +160,7 @@ class engine extends \core_search\engine {
         $returnval = false;
         $response = 404;
         $url = $this->get_url();
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
 
         if (!empty($this->config->index) && $url) {
             $index = $url . '/' . $this->config->index;
@@ -156,7 +185,7 @@ class engine extends \core_search\engine {
         // Get existing index definition.
         $url = $this->get_url();
         $indexeurl = $url . '/' . $this->config->index . '/_mapping';
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
         $response = $client->get($indexeurl);
         $responsebody = json_decode($response->getBody());
         if ($this->get_es_lucene_version() < 8) {
@@ -184,7 +213,7 @@ class engine extends \core_search\engine {
      */
     private function get_es_version_details($stack = false) {
         $url = $this->get_url();
-        $client = new \search_elastic\esrequest($stack);
+        $client = $this->get_client($stack);
         $response = $client->get($url);
         $responsebody = json_decode($response->getBody());
 
@@ -202,7 +231,11 @@ class engine extends \core_search\engine {
      * @return int The Apache Lucene major version.
      */
     public function get_es_lucene_version($stack = false): int {
-        return (int) $this->get_es_version_details($stack)->lucene_version;
+        if ($this->luceneversion === null) {
+            $this->luceneversion = (int) $this->get_es_version_details($stack)->lucene_version;
+        }
+
+        return $this->luceneversion;
     }
 
     /**
@@ -243,7 +276,7 @@ class engine extends \core_search\engine {
      */
     private function create_index() {
         $url = $this->get_url();
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
         if (!empty($this->config->index) && $url) {
             $indexurl = $url . '/' . $this->config->index;
             $mapping = $this->get_mapping();
@@ -337,7 +370,7 @@ class engine extends \core_search\engine {
     protected function get_indexed_files($document, $start = 0, $rows = 500) {
         $url = $this->get_url();
         $indexeurl = $url . '/' . $this->config->index . '/_search';
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
         // TODO: move this to document class.
         $query = ['query' => [
                 'bool' => [
@@ -451,7 +484,7 @@ class engine extends \core_search\engine {
      */
     private function delete_by_query(array $queryfilter, string $description): bool {
         $url = $this->get_url() . '/' . $this->config->index . '/_delete_by_query';
-        $client = new esrequest();
+        $client = $this->get_client();
         $query = ['query' => $queryfilter];
 
         try {
@@ -838,7 +871,7 @@ class engine extends \core_search\engine {
 
         // Send the bulk request.
         $url = $this->get_url();
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
         $docurl = $url . '/' . $this->config->index . '/_bulk';
         $response = $client->post($docurl, $this->payload);
         $responsebody = json_decode($response->getBody());
@@ -1178,7 +1211,7 @@ class engine extends \core_search\engine {
             $docurl = $url . '/' . $this->config->index . '/' . $docprefix . 'doc/' . $docdata['id'];
             $jsondoc = json_encode($docdata);
 
-            $client = new \search_elastic\esrequest();
+            $client = $this->get_client();
             $response = $client->post($docurl, $jsondoc);
             $responsecode = $response->getStatusCode();
 
@@ -1237,7 +1270,7 @@ class engine extends \core_search\engine {
             $docurl = $url . '/' . $this->config->index . '/' . $docprefix . 'doc/' . $docdata['id'];
             $jsondoc = json_encode($docdata);
 
-            $client = new \search_elastic\esrequest();
+            $client = $this->get_client();
             $response = $client->post($docurl, $jsondoc);
             $responsecode = $response->getStatusCode();
 
@@ -1522,7 +1555,7 @@ class engine extends \core_search\engine {
         $docs = [];
         $docoffest = 0;
         $url = $this->get_url() . '/' .  $this->config->index . '/_search';
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
 
         $returnlimit = \core_search\manager::MAX_RESULTS;
 
@@ -1618,7 +1651,7 @@ class engine extends \core_search\engine {
         }
         $url = $this->get_url();
         $deleteurl = $url . '/' . $this->config->index . '/' . $docprefix . 'doc/' . $id;
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
 
         $client->delete($deleteurl);
     }
@@ -1632,7 +1665,7 @@ class engine extends \core_search\engine {
     public function delete($areaid = false) {
         $url = $this->get_url();
         $indexeurl = $url . '/' . $this->config->index;
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
         $returnval = false;
 
         if ($areaid === false) {
@@ -1679,7 +1712,7 @@ class engine extends \core_search\engine {
      */
     public function optimize() {
         $url = $this->get_url() . '/' . $this->config->index . '/_forcemerge';
-        $client = new \search_elastic\esrequest();
+        $client = $this->get_client();
 
         $client->post($url, '');
     }
