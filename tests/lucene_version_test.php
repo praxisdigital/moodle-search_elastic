@@ -65,9 +65,13 @@ final class lucene_version_test extends advanced_testcase {
             new Response(200, ['Content-Type' => 'application/json'], $body),
         ]));
 
-        $version = (new engine())->get_es_lucene_version($stack);
+        $engine = new engine();
+        $version = $engine->get_es_lucene_version($stack);
 
         $this->assertSame($legacymapping, $version < 8);
         $this->assertSame($expected, $version);
+
+        // The mock queue is empty: another HTTP request would fail.
+        $this->assertSame($expected, $engine->get_es_lucene_version($stack));
     }
 }
