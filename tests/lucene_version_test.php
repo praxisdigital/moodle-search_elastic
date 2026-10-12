@@ -74,4 +74,59 @@ final class lucene_version_test extends advanced_testcase {
         // The mock queue is empty: another HTTP request would fail.
         $this->assertSame($expected, $engine->get_es_lucene_version($stack));
     }
+
+    /**
+     * Responses that must not populate the Lucene version cache.
+     *
+     * @return array
+     */
+    public static function invalid_version_provider(): array {
+        return [
+            'HTTP error' => [503, '{"error":"Service unavailable"}'],
+            'HTTP error with version' => [500, '{"version":{"lucene_version":"10.3.2"}}'],
+            'Invalid JSON' => [200, '<html>Bad gateway</html>'],
+            'Missing version' => [200, '{}'],
+            'Invalid version object' => [200, '{"version":"10.3.2"}'],
+            'Missing Lucene version' => [200, '{"version":{}}'],
+            'Null Lucene version' => [200, '{"version":{"lucene_version":null}}'],
+            'Non-string Lucene version' => [200, '{"version":{"lucene_version":true}}'],
+            'Empty Lucene version' => [200, '{"version":{"lucene_version":""}}'],
+            'Non-numeric Lucene version' => [200, '{"version":{"lucene_version":"unknown"}}'],
+            'Malformed Lucene version' => [200, '{"version":{"lucene_version":"10.invalid"}}'],
+            'Zero Lucene version' => [200, '{"version":{"lucene_version":"0.0.0"}}'],
+        ];
+    }
+
+    /**
+     * Failed lookups leave the cache empty so the next call retries.
+     *
+     * @param int $status HTTP status of the failed lookup.
+     * @param string $body Response body of the failed lookup.
+     * @dataProvider invalid_version_provider
+     */
+    public function test_failed_lookup_is_not_cached(int $status, string $body): void {
+        $this->resetAfterTest();
+        set_config('hostname', 'http://localhost', 'search_elastic');
+
+        $mock = new MockHandler([
+            new Response($status, [], $body),
+            new Response(200, [], '{"version":{"lucene_version":"10.3.2"}}'),
+        ]);
+        $stack = HandlerStack::create($mock);
+        $engine = new engine();
+
+        $exception = null;
+        try {
+            $engine->get_es_lucene_version($stack);
+        } catch (\RuntimeException $e) {
+            $exception = $e;
+        }
+        $this->assertInstanceOf(\RuntimeException::class, $exception);
+        $this->assertCount(1, $mock);
+
+        $this->assertSame(10, $engine->get_es_lucene_version($stack));
+        $this->assertCount(0, $mock);
+        // A successful retry is cached: another HTTP request would exhaust the mock queue.
+        $this->assertSame(10, $engine->get_es_lucene_version($stack));
+    }
 }

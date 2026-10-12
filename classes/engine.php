@@ -209,12 +209,20 @@ class engine extends \core_search\engine {
      *
      * @param \GuzzleHttp\HandlerStack|bool $stack Optional custom Guzzle handler stack.
      * @return object Apache Lucene version details.
+     * @throws \RuntimeException If the service does not return valid version details.
      */
     private function get_es_version_details($stack = false) {
         $url = $this->get_url();
         $client = $this->get_client($stack);
         $response = $client->get($url);
+        if ($response->getStatusCode() !== 200) {
+            throw new \RuntimeException('Elasticsearch version lookup failed with HTTP status ' . $response->getStatusCode());
+        }
+
         $responsebody = json_decode($response->getBody());
+        if (!isset($responsebody->version) || !is_object($responsebody->version)) {
+            throw new \UnexpectedValueException('Elasticsearch response does not contain valid version details.');
+        }
 
         return $responsebody->version;
     }
@@ -228,10 +236,16 @@ class engine extends \core_search\engine {
      *
      * @param \GuzzleHttp\HandlerStack|bool $stack Optional custom Guzzle handler stack.
      * @return int The Apache Lucene major version.
+     * @throws \RuntimeException If the service does not return a valid Lucene version.
      */
     public function get_es_lucene_version($stack = false): int {
         if ($this->luceneversion === null) {
-            $this->luceneversion = (int) $this->get_es_version_details($stack)->lucene_version;
+            $version = $this->get_es_version_details($stack)->lucene_version ?? null;
+            if (!is_string($version) || !preg_match('/\A[1-9][0-9]*(?:\.[0-9]+)*\z/', $version)) {
+                throw new \UnexpectedValueException('Elasticsearch response does not contain a valid Lucene version.');
+            }
+
+            $this->luceneversion = (int) $version;
         }
 
         return $this->luceneversion;
