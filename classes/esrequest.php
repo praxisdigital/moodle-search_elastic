@@ -63,6 +63,11 @@ class esrequest {
             'connect_timeout' => isset($this->config->connecttimeout) ? intval($this->config->connecttimeout) : 5,
         ];
 
+        // Allow disabling SSL certificate verification (e.g. for self-signed ECK certificates).
+        if (!empty($this->config->disablesslverify)) {
+            $config['verify'] = false;
+        }
+
         // Allow the caller to instantiate the Guzzle client with a custom handler.
         if ($handler) {
             $config['handler'] = $handler;
