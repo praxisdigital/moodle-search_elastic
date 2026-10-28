@@ -755,6 +755,16 @@ class engine extends \core_search\engine {
     }
 
     /**
+     * Write opt-in indexing diagnostics without including document content.
+     *
+     * @param array $event Identifiers and processing stage only.
+     */
+    protected function log_indexing_event(array $event): void {
+        // Use the SAPI logger (stderr for CLI), independently of general request/payload logging.
+        error_log('search_elastic indexing: ' . json_encode($event, JSON_INVALID_UTF8_SUBSTITUTE), 4);
+    }
+
+    /**
      * Loop through given iterator of search documents
      * and and have the search engine back end add them
      * to the index.
@@ -765,6 +775,19 @@ class engine extends \core_search\engine {
      * @return array Processed document counts
      */
     public function add_documents($iterator, $searcharea, $options) {
+        $traceenabled = getenv('SEARCH_ELASTIC_INDEX_TRACE') === '1';
+        $areaid = $traceenabled ? $searcharea->get_area_id() : null;
+        $trace = function(string $stage, ?string $docid = null) use ($traceenabled, $areaid): void {
+            if ($traceenabled) {
+                $this->log_indexing_event([
+                    'pid' => getmypid(),
+                    'areaid' => $areaid,
+                    'stage' => $stage,
+                    'docid' => $docid,
+                ]);
+            }
+        };
+        $trace('area_start');
         $numrecords = 0;
         $numdocs = 0;
         $numdocsignored = 0;
@@ -783,9 +806,10 @@ class engine extends \core_search\engine {
             $chunkingoptions = manager::get_chunking_options();
         }
 
-        // First we'll process all the documents, then if we
-        // are processing files we'll itterate through again and just add the files.
+        // Log before foreach: rewind/valid/current can fail before a document reaches this engine.
+        $trace('iterator_start');
         foreach ($iterator as $document) {
+            $trace('document_received');
             // Stop if we have exceeded the time limit (and there are still more items). Always
             // do at least one second's worth of documents otherwise it will never make progress.
             if (
@@ -793,18 +817,23 @@ class engine extends \core_search\engine {
                     !empty($options['stopat']) && microtime(true) >= $options['stopat']
             ) {
                         $partial = true;
+                        $trace('time_limit');
                         break;
             }
 
             if (!$document instanceof \core_search\document) {
+                $trace('non_document_skipped');
                 continue;
             }
+            $docid = $traceenabled ? (string)$document->get('id') : null;
+            $trace('document_start', $docid);
             if (isset($options['lastindexedtime']) && $options['lastindexedtime'] == 0) {
                 // If we have never indexed this area before, it must be new.
                 $document->set_is_new(true);
             }
 
             $lastindexeddoc = $document->get('modified');
+            $trace('export', $docid);
             $docdata = $document->export_for_engine();
 
             $numrecords++;
@@ -814,6 +843,7 @@ class engine extends \core_search\engine {
             if ($chunkingenabled) {
                 // Check if chunking is needed.
                 if (!empty($docdata['content'])) {
+                    $trace('chunk', $docid);
                     $contentchunks = $strategy->chunk($docdata['content'], $chunkingoptions);
                 }
                 $needschunking = count($contentchunks) > 1;
@@ -821,25 +851,35 @@ class engine extends \core_search\engine {
 
             if (!$needschunking) {
                 // Small document or chunking disabled - add to batch normally.
+                $trace('create_payload', $docid);
                 $jsonpayload = $this->create_payload($docdata);
                 if ($jsonpayload) {
+                    $trace('batch_add', $docid);
                     $numdocsignored += $this->batch_add_documents($jsonpayload, true);
                 } else {
                     $numdocsignored++;
                 }
             } else {
                 // Large document - create chunks and add to batch.
+                $trace('batch_add_chunks', $docid);
                 $ignored = $this->batch_add_document_chunks($docdata, $contentchunks);
                 $numdocsignored += $ignored;
             }
 
             if ($options['indexfiles']) {
+                $trace('attach_files', $docid);
                 $searcharea->attach_files($document);
+                $trace('process_files', $docid);
                 $this->process_document_files($document);
             }
+            $trace('document_complete', $docid);
+            // A failure after this point may be constructing the NEXT document, whose ID is not yet available.
+            $trace('iterator_advance');
         }
 
+        $trace('batch_flush');
         $numdocsignored += $this->batch_add_documents(false, true, true);
+        $trace('area_complete');
         $numdocs = $numrecords - $numdocsignored;
 
         if (method_exists($this, 'supports_add_document_batch')) {
