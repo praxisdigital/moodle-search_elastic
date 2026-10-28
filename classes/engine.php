@@ -761,7 +761,46 @@ class engine extends \core_search\engine {
      */
     protected function log_indexing_event(array $event): void {
         // Use the SAPI logger (stderr for CLI), independently of general request/payload logging.
-        error_log('search_elastic indexing: ' . json_encode($event, JSON_INVALID_UTF8_SUBSTITUTE), 4);
+        error_log($this->format_indexing_event($event), 4);
+    }
+
+    /**
+     * Keep diagnostic context readable even when JSON encoding fails.
+     *
+     * @param array $event Identifiers and processing stage only.
+     * @return string Single-line diagnostic message.
+     */
+    protected function format_indexing_event(array $event): string {
+        // Sample before encoding. These are PHP allocator metrics, not container memory usage.
+        $event['memory_bytes'] = memory_get_usage(false);
+        $event['allocated_bytes'] = memory_get_usage(true);
+        $event['peak_memory_bytes'] = memory_get_peak_usage(false);
+        $event['peak_allocated_bytes'] = memory_get_peak_usage(true);
+        $event['memory_limit'] = ini_get('memory_limit');
+
+        // Do not rely on JSON for the essential context. Escape whitespace/control characters
+        // so an identifier cannot introduce additional log lines or misleading fields.
+        $message = 'search_elastic indexing:';
+        foreach (['stage', 'areaid', 'docid', 'pid', 'memory_bytes', 'allocated_bytes',
+                'peak_memory_bytes', 'peak_allocated_bytes', 'memory_limit'] as $field) {
+            $value = $event[$field] ?? 'unknown';
+            if ($field === 'docid' && $value === 'unknown') {
+                $value = 'unavailable';
+            }
+            $message .= ' ' . $field . '=' . rawurlencode((string)$value);
+        }
+
+        $json = json_encode($event, JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($json) || $json === '') {
+            // Check the return value, not only json_last_error(): abnormal execution may leave
+            // no JSON output without setting a useful JSON error code.
+            $errorcode = json_last_error();
+            $errormessage = json_last_error_msg();
+            return $message . ' json_status=failed json_error_code=' . (string)$errorcode .
+                ' json_error_message=' . rawurlencode((string)$errormessage);
+        }
+
+        return $message . ' json=' . $json;
     }
 
     /**
